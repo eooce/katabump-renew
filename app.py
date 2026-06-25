@@ -641,17 +641,19 @@ def main():
     print("#" * 25)
     print("   katabump 自动登录续期")
     print("#" * 25)
-    
-    use_proxy = os.environ.get("USE_PROXY", "false").lower() == "true"
+
+    IS_PROXY = os.environ.get("IS_PROXY", "false").lower() == "true"
+    # 优先使用环境变量里的 PROXY_SERVER（例如外部 SOCKS5），
+    # 否则退回 sing-box 在本机暴露的 HTTP 入口（见 .github/workflows/renew.yml）。
+    proxy_str = os.environ.get("PROXY_SERVER", "").strip() or "http://127.0.0.1:1081"
     sb_kwargs = {"uc": True, "headless": False}
-    
-    if use_proxy:
-        proxy_str = "http://127.0.0.1:8080"
-        print(f"🔗 挂载 SING_BOX 代理: {proxy_str}")
+
+    if IS_PROXY:
+        print(f"🔗 挂载代理: {proxy_str}")
         sb_kwargs["proxy"] = proxy_str
     else:
         print("🌐 未使用代理，直连访问")
-    
+
     with SB(**sb_kwargs) as sb:
         # print("✅ 浏览器已启动")
         try:
