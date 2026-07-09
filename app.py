@@ -8,10 +8,10 @@ import requests
 from seleniumbase import SB
 
 # 从环境变量获取账号密码和 TG 配置
-EMAIL        = os.environ.get("KATABUMP_EMAIL") or 'wxxuux@gmail.com'
-PASSWORD     = os.environ.get("KATABUMP_PASSWORD") or 'Lkwn36257@'
-TG_CHAT_ID   = os.environ.get("TG_CHAT_ID") or '6018078561'
-TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN") or '7535846002:AAF-b51hzSRufs1UGt6o-9hZEvVB5wwMJOM'
+EMAIL        = os.environ.get("KATABUMP_EMAIL") or ""    # 登录邮箱
+PASSWORD     = os.environ.get("KATABUMP_PASSWORD") or "" # 账号密码
+TG_CHAT_ID   = os.environ.get("TG_CHAT_ID") or ""        # tg通知 chat id(可选)
+TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN") or ""       # tg通知bot token(可选)
 
 BASE_URL = "https://dashboard.katabump.com"  # 网站链接
 
@@ -643,8 +643,6 @@ def main():
     print("#" * 25)
 
     IS_PROXY = os.environ.get("IS_PROXY", "false").lower() == "true"
-    # 优先使用环境变量里的 PROXY_SERVER（例如外部 SOCKS5），
-    # 否则退回 sing-box 在本机暴露的 HTTP 入口（见 .github/workflows/renew.yml）。
     proxy_str = os.environ.get("PROXY_SERVER", "").strip() or "http://127.0.0.1:1081"
     sb_kwargs = {"uc": True, "headless": False}
 
@@ -658,7 +656,7 @@ def main():
         # print("✅ 浏览器已启动")
         try:
             sb.open("https://api.ip.sb/ip")
-            print(f"🌐 当前出口真实IP: {sb.get_text('body')}")
+            print(f"🌐 当前出口IP: {sb.get_text('body')}")
         except Exception:
             pass
 
