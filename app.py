@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import os
+import sys
 import time
 import subprocess
 import requests
@@ -163,7 +164,7 @@ _ALTCHA_SOLVED_JS = """
 def js_fill_input(sb, selector: str, text: str):
     safe_text = text.replace('\\', '\\\\').replace('"', '\\"')
     sb.execute_script(f"""
-    (function(){{
+    (function(){{{
         var el = document.querySelector('{selector}');
         if (!el) return;
         var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
@@ -202,7 +203,7 @@ def _xdotool_click(x: int, y: int):
     except Exception:
         os.system(f"xdotool mousemove {x} {y} click 1 2>/dev/null")
 
-#  人机验证处理（使用 SeleniumBase 内置 uc_gui_click_captcha）
+#  人机验证处理（核心升级）
 def handle_turnstile(sb) -> bool:
     print("🔍 处理 Cloudflare Turnstile 验证...")
     time.sleep(2)
@@ -212,15 +213,29 @@ def handle_turnstile(sb) -> bool:
         print("✅ 已静默通过")
         return True
 
-    # 尝试展开 Turnstile（防止被父容器 overflow:hidden 裁剪）
+    # 尝试展开 Turnstile
     for _ in range(3):
         try: sb.execute_script(_EXPAND_JS)
         except Exception: pass
         time.sleep(0.5)
 
-    # 使用 SeleniumBase 内置 uc_gui_click_captcha 处理 Turnstile
-    # 该方法自动完成：检测验证码类型 → 定位 iframe → 计算坐标 → PyAutoGUI 平滑点击
-    for attempt in range(6):
+    # 【升级 1】优先使用最新的 CDP 解决方案 sb.solve_captcha() (推荐，不易引发风控)
+    print("🪄 尝试调用 sb.solve_captcha() 进行无感破解...")
+    try:
+        sb.solve_captcha()
+    except Exception as e:
+        print(f"⚠️ solve_captcha 触发异常（可能未完全加载）: {e}")
+
+    # 给 CDP 验证留出一些等待时间
+    for _ in range(16):
+        time.sleep(0.5)
+        if sb.execute_script(_SOLVED_JS):
+            print("✅ Turnstile 验证已成功通过")
+            return True
+
+    # 【升级 2】降级使用传统的物理模拟点击 (如果 CDP 模式失败)
+    print("⚠️ 自动识别未通过，尝试降级至 uc_gui_click_captcha 模拟物理点击...")
+    for attempt in range(4):
         if sb.execute_script(_SOLVED_JS):
             print(f"✅ Turnstile 通过（第 {attempt} 次尝试）")
             return True
@@ -231,7 +246,7 @@ def handle_turnstile(sb) -> bool:
         except Exception as e:
             print(f"⚠️ uc_gui_click_captcha 调用异常: {e}")
 
-        # 等待验证结果（最多 8 秒）
+        # 等待物理点击生效
         for _ in range(16):
             time.sleep(0.5)
             if sb.execute_script(_SOLVED_JS):
@@ -240,13 +255,19 @@ def handle_turnstile(sb) -> bool:
 
         print(f"⚠️ 第 {attempt + 1} 次未通过，重试...")
 
-    print("  ❌ Turnstile 6 次均失败")
+    print("❌ Turnstile 所有验证方式均已失败")
     return False
 
 #  账户登录
 def login(sb) -> bool:
-    print(f"🌐 打开登录页面: {BASE_URL}/auth/login")
-    sb.uc_open_with_reconnect(BASE_URL + "/auth/login", reconnect_time=8)
+    print(f"🌐 激活 CDP 模式并打开登录页面: {BASE_URL}/auth/login")
+    try:
+        # 【升级 3】使用 activate_cdp_mode，这能在隐藏 WebDriver 的同时保持高通过率
+        sb.activate_cdp_mode(BASE_URL + "/auth/login")
+    except Exception as e:
+        print(f"⚠️ 激活 CDP 模式异常: {e}，正在降级使用旧版连接...")
+        sb.uc_open_with_reconnect(BASE_URL + "/auth/login", reconnect_time=8)
+    
     time.sleep(6)
 
     # 先等待 Cloudflare 验证通过（最多等 30 秒）
@@ -265,7 +286,6 @@ def login(sb) -> bool:
     try:
         sb.wait_for_element('input[name="email"]', timeout=15)
     except Exception:
-        # 尝试大写选择器作为后备
         try:
             sb.wait_for_element('input[name="Email"]', timeout=5)
         except Exception:
@@ -614,7 +634,22 @@ def main():
 
     IS_PROXY = os.environ.get("IS_PROXY", "false").lower() == "true"
     proxy_str = os.environ.get("PROXY_SERVER", "").strip() or "http://127.0.0.1:1081"
-    sb_kwargs = {"uc": True, "headless": False}
+    
+    # 【升级 4】默认加入 incognito（无痕）和 locale（强制英文），隐藏浏览器原本的系统语言特征
+    sb_kwargs = {
+        "uc": True, 
+        "headless": False, 
+        "incognito": True, 
+        "locale": "en"
+    }
+
+    # 【升级 5】核心环境修复
+    # 如果你在没有显示器界面的 Linux 系统（例如云服务器、Docker 容器或 GitHub Actions）上运行：
+    # 强制开启虚拟屏幕（xvfb），否则 PyAutoGUI 调用底层鼠标坐标时必然直接卡死报错或点击无效。
+    if "linux" in sys.platform.lower():
+        if not os.environ.get("DISPLAY"):
+            print("🖥️  检测到 Linux 无图形界面环境，强制启动 Xvfb 虚拟屏幕支持...")
+            sb_kwargs["xvfb"] = True
 
     if IS_PROXY:
         print(f"🔗 挂载代理: {proxy_str}")
@@ -624,7 +659,6 @@ def main():
     
     print("🚀 启动浏览器...")
     with SB(**sb_kwargs) as sb:
-        # print("✅ 浏览器已启动")
         try:
             sb.open("https://api.ip.sb/ip")
             print(f"📍  当前出口IP: {sb.get_text('body')}")
